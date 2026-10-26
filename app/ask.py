@@ -25,9 +25,7 @@ DEFAULT_QUESTION = "AIE2026の講座の宿題にある「3レベル」とは何�
 def ask(question: str) -> str:
     client = genai.Client(api_key=get_api_key())
     response = client.models.generate_content(model=MODEL, contents=question)
-
-    # TODO(第1回 演習): response.usage_metadata から
-    #   入力トークン数と出力トークン数を表示してみよう（Copilotに頼んでよい）
+    print_usage(response)
 
     return response.text
 
