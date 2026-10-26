@@ -4,9 +4,10 @@
     uv run python -m app.ask "LoRAとは何ですか？"
     uv run python -m app.ask            # 質問を省略すると、講座に固有の質問をする
 
-ツールも会話履歴も持たない「素の」呼び出し。
+ツールを持たない「素の」呼び出し。
 講座に固有のことを聞くと、「分からない」と答えるか、一般論でもっともらしく答える
 （講座の実際とは違う）ことを確かめよう。
+--interactive を付けると、会話履歴を保ったまま続けて質問できる。
 （第3回で、用語集を検索できるエージェントにして改善する）
 """
 
@@ -25,18 +26,54 @@ def ask(question: str) -> str:
     client = genai.Client(api_key=get_api_key())
     response = client.models.generate_content(model=MODEL, contents=question)
 
-    # TODO(第1回 演習): response.usage_metadata から
-    #   入力トークン数と出力トークン数を表示してみよう（Copilotに頼んでよい）
+    print_usage(response)
 
     return response.text
+
+
+def print_usage(response) -> None:
+    usage = response.usage_metadata
+    input_tokens = usage.prompt_token_count if usage else None
+    output_tokens = usage.candidates_token_count if usage else None
+    print(f"[tokens] 入力: {input_tokens if input_tokens is not None else '不明'}, 出力: {output_tokens if output_tokens is not None else '不明'}")
+
+
+def interactive() -> None:
+    client = genai.Client(api_key=get_api_key())
+    chat = client.chats.create(model=MODEL)
+    print("対話モードです。「終了」「exit」「quit」で終了します。")
+
+    while True:
+        try:
+            question = input("質問> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return
+        if question.lower() in {"終了", "exit", "quit"}:
+            return
+        if not question:
+            continue
+
+        response = chat.send_message(question)
+        print_usage(response)
+        print(response.text)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="素のLLMに質問する")
     parser.add_argument("question", nargs="?", default=DEFAULT_QUESTION)
+    parser.add_argument("--interactive", action="store_true", help="会話履歴を保って対話する")
     args = parser.parse_args()
 
     print(f"[model] {MODEL}")
+    if args.interactive:
+        try:
+            interactive()
+        except errors.APIError as e:
+            print(api_error_message(e.code, e.message))
+            raise SystemExit(1)
+        return
+
     print(f"[質問] {args.question}\n")
     try:
         print(ask(args.question))
