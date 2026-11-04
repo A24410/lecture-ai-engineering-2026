@@ -54,6 +54,26 @@ def test_make_quiz_reports_missing_lecture_terms():
     assert "見つかりませんでした" in tools.make_quiz(0)
 
 
+def test_save_learning_log_writes_markdown(tmp_path, monkeypatch):
+    log_dir = tmp_path / "learning_log"
+    monkeypatch.setattr(tools, "LEARNING_LOG_DIR", log_dir)
+
+    result = tools.save_learning_log("今日はLoRAを学んだ。")
+
+    files = list(log_dir.glob("*.md"))
+    assert len(files) == 1
+    assert files[0].read_text(encoding="utf-8") == "今日はLoRAを学んだ。\n"
+    assert "learning_log/" in result
+
+
+def test_save_learning_log_does_not_write_empty_content(tmp_path, monkeypatch):
+    log_dir = tmp_path / "learning_log"
+    monkeypatch.setattr(tools, "LEARNING_LOG_DIR", log_dir)
+
+    assert "空" in tools.save_learning_log("  ")
+    assert not log_dir.exists()
+
+
 def test_default_question_of_lecture1_is_answerable_from_glossary():
     """第1回の既定の質問（app.ask）は、第3回のエージェントが用語集で正しく答えられること。"""
     from app.ask import DEFAULT_QUESTION
