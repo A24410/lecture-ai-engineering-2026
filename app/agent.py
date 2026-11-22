@@ -21,7 +21,7 @@ from pathlib import Path
 from contextlib import nullcontext
 from time import perf_counter
 
-from pydantic_ai import Agent
+from pydantic_ai import Agent, DeferredToolRequests
 from pydantic_ai.exceptions import ModelHTTPError
 from fastmcp import Client
 from pydantic_ai.mcp import MCPToolset, StdioTransport
@@ -59,6 +59,7 @@ GRAPH_INSTRUCTIONS = """\
 あなたはAIエンジニアリング講座（AIE2026）の学習支援エージェントです。
 - 対象は第1〜3回の本講義資料。まず search_graph で関連ページの候補を探す。
 - seedsは検索で見つかった入口、expandedはグラフをたどって追加された候補。
+- query_matched_termsは質問に現れる用語との一致を示す。用語一致だけで根拠とせず、ページ本文で回答を確認する。
 - seedsとexpandedに含まれるページ本文を確認し、質問の根拠となる内容を使って回答する。
 - 用語が共通していても、質問の答えがあるとは限らない。必要なら別の検索語で探す。
 - 取得した本文に根拠がなければ確認できないと伝え、根拠ごとに「第N回・PDF p.N」を付ける。
@@ -78,10 +79,12 @@ FULL_CONTEXT_PROMPT = "<資料>\n{materials}\n</資料>\n\n質問: {question}"
 
 
 # モデルは実行時に渡す（テストではAPIを呼ばない TestModel に差し替えるため）
-agent = Agent(instructions=INSTRUCTIONS)
+agent = Agent(instructions=INSTRUCTIONS, output_type=[str, DeferredToolRequests])
 agent.tool_plain(tools.search_materials)
-
-# TODO(第3回 演習): tools.py に make_quiz を作り、ここで登録しよう
+agent.tool_plain(tools.search_glossary)
+agent.tool_plain(tools.get_lecture_summary)
+agent.tool_plain(tools.make_quiz)
+agent.tool_plain(tools.save_learning_log, requires_approval=True)
 
 # 第5回: 使う MCP サーバーの設定ファイル。Claude Desktop や Cursor と同じ "mcpServers" 形式
 MCP_CONFIG = Path(__file__).resolve().parent / "mcp_servers.json"
@@ -215,6 +218,19 @@ def main() -> None:
                 )
             else:
                 result = target.run_sync(args.question, model=build_model())
+                while isinstance(result.output, DeferredToolRequests):
+                    requests = result.output
+                    approvals = {}
+                    for call in requests.approvals:
+                        print(f"\n承認が必要な操作: {call.tool_name}({call.args})")
+                        answer = input("実行を承認しますか？ [y/N]: ").strip().lower()
+                        approvals[call.tool_call_id] = answer in {"y", "yes", "はい"}
+                    result = target.run_sync(
+                        args.question,
+                        message_history=result.all_messages(),
+                        deferred_tool_results=requests.build_results(approvals=approvals),
+                        model=build_model(),
+                    )
         except ModelHTTPError as e:
             print(api_error_message(e.status_code, str(e.body)[:200]))
             raise SystemExit(1)
