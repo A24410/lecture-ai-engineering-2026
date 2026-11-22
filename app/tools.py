@@ -123,7 +123,7 @@ def save_learning_log(content: str) -> str:
 
 
 def search_materials(query: str) -> str:
-    """第1〜3回の本講義資料を検索し、関連ページの本文・タイトル・ページ番号を返す。
+    """第1〜3回の本講義資料を検索し、ヒットページと前後ページの本文・引用情報を返す。
 
     queryに調べたい内容を指定する。
     """
@@ -153,7 +153,7 @@ def browse_tree(node_id: str | None = None) -> str:
 
 
 def search_graph(query: str) -> str:
-    """資料を検索し、前後ページ・共通用語をたどって関連ページの本文と引用情報を返す。
+    """資料を検索し、質問内の用語との一致を優先して関連ページの本文と引用情報を返す。
 
     queryに調べたい内容を指定する。
     """

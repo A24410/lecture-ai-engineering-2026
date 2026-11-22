@@ -124,8 +124,7 @@ def open_index(path: Path):
         db.close()
 
 
-def search(query: str) -> list[dict]:
-    """質問を埋め込み、近いページを最大RAG_TOP_K件返す。"""
+def _search_hits(query: str) -> list[dict]:
     if not isinstance(query, str) or not query.strip():
         raise ValueError("検索語が空です。")
     with open_index(RAG_DB) as db:
@@ -138,20 +137,81 @@ def search(query: str) -> list[dict]:
         return [dict(row) for row in rows]
 
 
+def _include_neighbor_pages(hits: list[dict], pages: list[dict]) -> list[dict]:
+    """検索ヒットの前後ページを、同一資料内で重複なく追加する。"""
+    results = [dict(hit) for hit in hits]
+    included_ids = {hit["page_id"] for hit in hits}
+    pages_by_document = defaultdict(list)
+    for page in pages:
+        pages_by_document[page["document_id"]].append(page)
+
+    related_pages = {}
+    for hit in hits:
+        document_pages = pages_by_document[hit["document_id"]]
+        position = next(
+            (index for index, page in enumerate(document_pages) if page["page_id"] == hit["page_id"]),
+            None,
+        )
+        if position is None:
+            continue
+        for neighbor_index in (position - 1, position + 1):
+            if not 0 <= neighbor_index < len(document_pages):
+                continue
+            neighbor = document_pages[neighbor_index]
+            if neighbor["page_id"] in included_ids:
+                if neighbor["page_id"] in related_pages:
+                    related_pages[neighbor["page_id"]]["context_for"].append(hit["page_id"])
+                continue
+            related = {**neighbor, "context_for": [hit["page_id"]]}
+            results.append(related)
+            included_ids.add(neighbor["page_id"])
+            related_pages[neighbor["page_id"]] = related
+    return results
+
+
+def search(query: str) -> list[dict]:
+    """質問に近いページと、同じ資料内の前後ページを返す。"""
+    hits = _search_hits(query)
+    return _include_neighbor_pages(hits, load_pages(RAG_SOURCE)) if hits else []
+
+
+def _query_term_ids(query: str, nodes: dict) -> set[str]:
+    normalized_query = re.sub(r"\s+", "", query.casefold())
+    matched = set()
+    for node_id, node in nodes.items():
+        if node["kind"] != "term":
+            continue
+        term = re.sub(r"\s+", "", node["title"].casefold())
+        if term.isascii() and term.isalnum():
+            found = re.search(rf"(?<![a-z0-9]){re.escape(term)}(?![a-z0-9])", normalized_query)
+        else:
+            found = term in normalized_query
+        if found:
+            matched.add(node_id)
+    return matched
+
+
 def search_graph(query: str) -> dict:
-    """ベクトル検索を入口に、前後ページと共通用語で候補を広げる。"""
+    """ベクトル検索を入口に、質問内の用語と関連ページを優先して候補を広げる。"""
     pages = {page["page_id"]: page for page in load_pages(RAG_SOURCE)}
     graph = json.loads(RAG_GRAPH.read_text(encoding="utf-8"))
     nodes = {node["id"]: node for node in graph["nodes"]
              if node["kind"] == "term" or node["id"] in pages}
+    query_terms = _query_term_ids(query, nodes)
+    page_query_terms = defaultdict(set)
     adjacent = defaultdict(set)
     for edge in graph["edges"]:
         a, b = edge["source"], edge["target"]
         if edge["relation"] in ("next_page", "mentions") and a in nodes and b in nodes:
             adjacent[a].add(b)
             adjacent[b].add(a)
+        if edge["relation"] == "mentions":
+            if a in pages and b in query_terms:
+                page_query_terms[a].add(b)
+            if b in pages and a in query_terms:
+                page_query_terms[b].add(a)
 
-    seeds = [hit for hit in search(query) if hit["page_id"] in pages][:min(GRAPH_START_K, GRAPH_MAX_RESULTS)]
+    seeds = [hit for hit in _search_hits(query) if hit["page_id"] in pages][:min(GRAPH_START_K, GRAPH_MAX_RESULTS)]
     seed_ids = {seed["page_id"] for seed in seeds}
     results, candidates = [], {}
     for rank, seed in enumerate(seeds):
@@ -175,8 +235,10 @@ def search_graph(query: str) -> dict:
                 if neighbor not in pages or neighbor in seed_ids:
                     continue
                 frequency = max((len(adjacent[n]) for n in route if nodes[n]["kind"] == "term"), default=0)
-                priority = (len(route) - 1, frequency, rank, neighbor)
+                matched_terms = page_query_terms[neighbor]
+                priority = (-len(matched_terms), len(route) - 1, frequency, rank, neighbor)
                 candidate = {**pages[neighbor], "hops": len(route) - 1,
+                             "query_matched_terms": sorted(nodes[n]["title"] for n in matched_terms),
                              "path": [{"id": n, "title": nodes[n]["title"]} for n in route]}
                 if neighbor not in candidates or priority < candidates[neighbor][0]:
                     candidates[neighbor] = (priority, candidate)
@@ -204,6 +266,8 @@ if __name__ == "__main__":
     args = parser.parse_args()
     for i, result in enumerate(search(args.query), 1):
         print(f"\n{'=' * 60}\n検索結果 {i}\n{'=' * 60}")
+        if "context_for" in result:
+            print(f"前後ページ（検索ヒット: {', '.join(result['context_for'])}）")
         print(f"講義: {result['document_title']}")
         print(f"章: {result['section']}")
         print(f"タイトル: {result['title']}")
