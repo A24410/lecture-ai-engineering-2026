@@ -17,6 +17,7 @@ from app.mcp_agent import (
     describe_servers,
     read_config,
 )
+from app.mcp_server import make_quiz
 
 GLOSSARY_TOOL = "glossary_search_glossary"  # 設定ファイルのサーバー名 "glossary" が前に付く
 
@@ -41,7 +42,11 @@ def test_glossary_server_exposes_search_tool(tmp_path):
     build_mcp_agent(_glossary_only_config(tmp_path)).run_sync("ツール一覧", model=model)
 
     offered = {t.name for t in model.last_model_request_parameters.function_tools}
-    assert GLOSSARY_TOOL in offered  # 宿題でツールを足しても壊れないよう「含む」で判定
+    assert {
+        GLOSSARY_TOOL,
+        "glossary_get_lecture_summary",
+        "glossary_make_quiz",
+    } <= offered
 
 
 def test_glossary_result_comes_back_through_mcp(tmp_path):
@@ -53,6 +58,14 @@ def test_glossary_result_comes_back_through_mcp(tmp_path):
     assert returns and returns[0].tool_name == GLOSSARY_TOOL
     assert str(returns[0].content).strip()  # 検索結果（または「見つかりませんでした」）が戻っている
     assert result.output
+
+
+@pytest.mark.parametrize("lecture", [0, 99])
+def test_make_quiz_explains_which_lectures_are_available(lecture):
+    result = make_quiz(lecture)
+
+    assert f"第{lecture}回のクイズは作れません" in result
+    assert "用語集にある回: 1, 2, 3, 4, 6" in result
 
 
 def test_describe_servers_tells_command_from_url(tmp_path):
