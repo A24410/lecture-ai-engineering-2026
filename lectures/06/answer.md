@@ -4,17 +4,35 @@
 
 <!-- [tool call] の行は、表示された行をそのまま貼り付けてください。終わらなかった STEP は、空欄のままでかまいません。 -->
 
-- STEP 1 のツールの名前：
-- STEP 2 の [tool call]：
+- STEP 1 のツールの名前：glossary_search_glossary
+- STEP 2 の [tool call]：[tool call]   glossary_search_glossary({'query': '3レベル'})
 - STEP 3 の [tool call]：
-- STEP 4 の [tool call]：
-- 気づき・疑問：
+  [tool call]   fetch_fetch({'url': 'https://modelcontextprotocol.io/'})
+  [tool call]   glossary_search_glossary({'query': 'Model Context Protocol'})
+- STEP 4 の [tool call]：[tool call]   aws_aws___search_documentation({'search_phrase': 'Amazon S3 versioning overview', 'topics': ['general']})
+- 気づき・疑問：STEP 1 の一覧で glossary_search_glossary、fetch_fetch、aws_ で始まるツールを確認。STEP 3 ではfetchに加えて用語集ツールも呼び出された。
 
 ## 宿題
 
-<!-- 基礎・実装・発展のどれか1つに取り組めば完了です。 -->
+<!-- 各レベルの結果を個別に記録しています。 -->
 
-- 取り組んだレベル：基礎 / 実装 / 発展
-- やったこと：
-- 結果：
-- 気づき・疑問：
+### 基礎
+
+- 取り組んだレベル：基礎
+- やったこと：「app/mcp_server.py」で「get_lecture_summary」をMCPツールとして公開しました。
+- 結果：一覧に 「glossary_get_lecture_summary」が追加され、「第2回では何を学びますか？」で呼び出されました。主題はファインチューニングとLoRAでした。
+- 気づき・疑問：エージェント側を変更しなくても、MCPサーバが公開するツールを追加すると一覧に反映されました。
+
+### 実装
+
+- 取り組んだレベル：実装
+- やったこと：「make_quiz」をMCPツールとして公開し、用語集にない回ではクイズを作れないことと利用できる回を返すようにしました。
+- 結果：「第99回のクイズを作って」で 「glossary_make_quiz」 が呼び出され、ツールは「第99回のクイズは作れません。用語集にある回: 1, 2, 3, 4, 6」を返しました。モデルは利用できる回を案内しました。
+- 気づき・疑問：「return」 のメッセージは [tool return] としてモデルに渡りました。
+
+### 発展
+
+- 取り組んだレベル：発展
+- やったこと：VSCodeの公式MCP設定ドキュメントを調べ、演習の「app/mcp_servers.json」と比較しました。
+- 結果：VSCodeのCopilot用の設定は、ユーザ全体なら「~/.copilot/mcp-config.json」（または「$COPILOT_HOME/mcp-config.json」）、ワークスペース共有ならルートの「.mcp.json」です。どちらも「mcpServers」形式ですが、コマンド起動には"type":"stdio"、URL接続には "type":"http"が必要です。演習の設定は "command"または"url"で接続方法を区別し、「type」は書きません。VSCodeではUIの「Chat:Open Customizations → MCP Servers」から追加する方法もあります。参照：[VSCode MCP configuration reference]([https://code.visualstudio.com/docs/agents/reference/mcp-configuration.md](https://code.visualstudio.com/docs/agents/reference/mcp-configuration))
+- 気づき・疑問：VSCodeのCopilot用設定はユーザ全体とワークスペース共有を選べます。

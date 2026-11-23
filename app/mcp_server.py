@@ -26,8 +26,19 @@ server = MCPServer(
 
 # 第3回と同じ関数を、そのまま MCP のツールとして公開する。docstring と型ヒントが説明文になる
 server.tool()(tools.search_glossary)
+server.tool()(tools.get_lecture_summary)
 
-# TODO(宿題・基礎): get_lecture_summary も公開しよう
+
+def make_quiz(lecture: int) -> str:
+    """指定した回の用語から確認問題を1問作る。用語がない回は、用意されている回を案内する。"""
+    available_lectures = sorted({term["lecture"] for term in tools.load_glossary()})
+    if lecture not in available_lectures:
+        available = ", ".join(str(number) for number in available_lectures)
+        return f"第{lecture}回のクイズは作れません。用語集にある回: {available}"
+    return tools.make_quiz(lecture)
+
+
+server.tool()(make_quiz)
 
 
 def main() -> None:
